@@ -13,7 +13,7 @@ export default defineConfig({
       },
       ai: {
         mode: "oversight",
-        tools: ["claude"],
+        tools: ["claude", "codex"],
       },
       verbose: true,
     }),
