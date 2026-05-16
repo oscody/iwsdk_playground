@@ -37,10 +37,15 @@ export class PlayerTunerSystem extends createSystem({}) {
   private tex!: CanvasTexture;
   private raiseBtn!: Entity;
   private lowerBtn!: Entity;
+  private resetBtn!: Entity;
+  private resetWasPressed = false;
+  private readonly defaultPlayerPos = new Vector3();
   private readonly eyeWorld = new Vector3();
   private lastKey = "";
 
   init() {
+    this.defaultPlayerPos.copy(this.world.player.position);
+
     // Head-locked cluster, lower-left of the view.
     const group = new Group();
     group.position.set(-0.27, -0.1, -0.7);
@@ -66,6 +71,7 @@ export class PlayerTunerSystem extends createSystem({}) {
 
     // RAISE / LOWER buttons.
     this.raiseBtn = this.makeButton(groupEntity, "RAISE", "up", -0.082);
+    this.resetBtn = this.makeButton(groupEntity, "RESET", "reset", 0, true);
     this.lowerBtn = this.makeButton(groupEntity, "LOWER", "down", 0.082);
 
     this.draw();
@@ -82,8 +88,14 @@ export class PlayerTunerSystem extends createSystem({}) {
     if (this.lowerBtn.hasComponent(Pressed)) {
       player.position.y -= MOVE_SPEED * delta;
     }
+    const resetPressed = this.resetBtn.hasComponent(Pressed);
+    if (resetPressed && !this.resetWasPressed) {
+      player.position.copy(this.defaultPlayerPos);
+    }
+    this.resetWasPressed = resetPressed;
+
     // Hover / press feedback.
-    for (const b of [this.raiseBtn, this.lowerBtn]) {
+    for (const b of [this.raiseBtn, this.resetBtn, this.lowerBtn]) {
       const scale = b.hasComponent(Pressed)
         ? 0.94
         : b.hasComponent(Hovered)
@@ -107,14 +119,16 @@ export class PlayerTunerSystem extends createSystem({}) {
   private makeButton(
     parent: Entity,
     label: string,
-    dir: "up" | "down",
+    dir: "up" | "down" | "reset",
     localX: number,
+    small = false,
   ): Entity {
     const canvas = document.createElement("canvas");
     canvas.width = 240;
     canvas.height = 150;
     const c = canvas.getContext("2d")!;
-    const accent = dir === "up" ? "#4caf6a" : "#d6804a";
+    const accent =
+      dir === "up" ? "#4caf6a" : dir === "down" ? "#d6804a" : "#5fe0d0";
     c.fillStyle = "rgba(16,22,30,0.97)";
     c.fillRect(0, 0, 240, 150);
     c.fillStyle = accent;
@@ -129,20 +143,22 @@ export class PlayerTunerSystem extends createSystem({}) {
       c.lineTo(152, 40);
       c.lineTo(120, 84);
     }
-    c.closePath();
-    c.fill();
+    if (dir !== "reset") {
+      c.closePath();
+      c.fill();
+    }
     c.textAlign = "center";
     c.fillStyle = "#f5f7ff";
-    c.font = "bold 34px sans-serif";
-    c.fillText(label, 120, 124);
+    c.font = small ? "bold 28px sans-serif" : "bold 34px sans-serif";
+    c.fillText(label, 120, small ? 92 : 124);
     const tex = new CanvasTexture(canvas);
     tex.colorSpace = SRGBColorSpace;
 
     const mesh = new Mesh(
-      new PlaneGeometry(0.135, 0.084),
+      new PlaneGeometry(small ? 0.102 : 0.135, small ? 0.062 : 0.084),
       this.hudMaterial(tex),
     );
-    mesh.position.set(localX, -0.07, 0.002);
+    mesh.position.set(localX, small ? -0.064 : -0.07, 0.002);
     mesh.renderOrder = 999;
     const e = this.world.createTransformEntity(mesh, parent);
     e.addComponent(RayInteractable);
