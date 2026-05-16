@@ -29,6 +29,13 @@ import {
   VisibilityState,
 } from "@iwsdk/core";
 
+import {
+  drawHoloPanel,
+  drawHoloText,
+  HOLO,
+  makeGlowMaterial,
+} from "./holoUi.js";
+
 /**
  * Serpent Grid XR — a holographic tabletop Snake game.
  *
@@ -89,6 +96,7 @@ export class SnakeGameSystem extends createSystem({}) {
 
   private hudCtx!: CanvasRenderingContext2D;
   private hudTex!: CanvasTexture;
+  private hudGlow!: Mesh;
 
   private arrows: Arrow[] = [];
   private hudEntity!: Entity;
@@ -165,8 +173,10 @@ export class SnakeGameSystem extends createSystem({}) {
 
     this.updateActionButton();
     this.renderSnake();
-    // Energy orb pulse.
+    // Energy orb pulse + holographic HUD halo.
     this.orbMesh.scale.setScalar(1 + Math.sin(this.elapsed * 4) * 0.16);
+    (this.hudGlow.material as MeshBasicMaterial).opacity =
+      0.2 * (0.8 + 0.2 * Math.sin(this.elapsed * 2));
   }
 
   // --- game loop ----------------------------------------------------------
@@ -518,6 +528,14 @@ export class SnakeGameSystem extends createSystem({}) {
     );
     hudGroup.add(hud);
 
+    // Soft holographic halo behind the HUD.
+    this.hudGlow = new Mesh(
+      new PlaneGeometry(0.92, 0.42),
+      makeGlowMaterial(HOLO.cyan),
+    );
+    this.hudGlow.position.set(0, 0, -0.01);
+    hudGroup.add(this.hudGlow);
+
     // New-game / restart button (its label tracks play state) plus
     // an exit-VR button, side by side just below the panel.
     this.restartEntity = this.buildActionButton(
@@ -548,14 +566,19 @@ export class SnakeGameSystem extends createSystem({}) {
     accent: string,
   ) {
     c.clearRect(0, 0, 360, 100);
-    c.fillStyle = "rgba(16,22,30,0.97)";
-    c.fillRect(0, 0, 360, 100);
-    c.fillStyle = accent;
-    c.fillRect(0, 0, 360, 5);
-    c.textAlign = "center";
-    c.fillStyle = "#f5f7ff";
-    c.font = "bold 40px sans-serif";
-    c.fillText(label, 180, 66);
+    drawHoloPanel(c, 14, 14, 332, 72, {
+      accent,
+      radius: 16,
+      glow: 0.9,
+      brackets: false,
+    });
+    drawHoloText(c, label, 180, 62, {
+      font: "bold 36px sans-serif",
+      color: HOLO.text,
+      glow: 0.45,
+      align: "center",
+      letterSpacing: 2,
+    });
   }
 
   /** Build the redrawable action button — label flips NEW GAME <-> RESTART. */
@@ -584,7 +607,7 @@ export class SnakeGameSystem extends createSystem({}) {
 
   /** Repaint the action button with the given label. */
   private drawActionButton(label: string) {
-    const accent = label === "RESTART" ? "#ffb020" : "#32d06e";
+    const accent = label === "RESTART" ? HOLO.amber : HOLO.green;
     this.drawTextButton(this.actionCtx, label, accent);
     this.actionTex.needsUpdate = true;
   }
@@ -611,40 +634,70 @@ export class SnakeGameSystem extends createSystem({}) {
   private drawHud() {
     const c = this.hudCtx;
     c.clearRect(0, 0, 620, 190);
-    c.fillStyle = "rgba(10,14,22,0.95)";
-    c.fillRect(0, 0, 620, 190);
-    c.fillStyle = "#46e0c0";
-    c.fillRect(0, 0, 620, 5);
+    drawHoloPanel(c, 16, 16, 588, 158, {
+      accent: HOLO.cyan,
+      radius: 22,
+      glow: 1,
+    });
 
-    c.textAlign = "center";
-    c.fillStyle = "#46e0c0";
-    c.font = "bold 26px sans-serif";
-    c.fillText("SERPENT GRID XR", 310, 40);
+    drawHoloText(c, "SERPENT GRID XR", 310, 52, {
+      font: "bold 25px sans-serif",
+      color: HOLO.cyan,
+      glow: 0.7,
+      align: "center",
+      letterSpacing: 4,
+    });
 
     if (this.gameOver) {
-      c.fillStyle = "#ff6b6b";
-      c.font = "bold 46px sans-serif";
-      c.fillText("GAME OVER", 310, 102);
-      c.fillStyle = "#cfd6f5";
-      c.font = "25px sans-serif";
-      c.fillText(
-        `score ${this.score}   ·   length ${this.body.length}`,
+      drawHoloText(c, "GAME OVER", 310, 110, {
+        font: "bold 44px sans-serif",
+        color: HOLO.red,
+        glow: 0.9,
+        align: "center",
+        letterSpacing: 3,
+      });
+      drawHoloText(
+        c,
+        `SCORE ${this.score}   ·   LENGTH ${this.body.length}`,
         310,
-        140,
+        144,
+        { font: "23px sans-serif", color: HOLO.lavender, align: "center" },
       );
-      c.fillStyle = "#8b93c8";
-      c.font = "20px sans-serif";
-      c.fillText("press R, trigger, or RESTART", 310, 172);
+      drawHoloText(c, "PRESS R · TRIGGER · RESTART", 310, 170, {
+        font: "17px sans-serif",
+        color: HOLO.lavender,
+        align: "center",
+        letterSpacing: 2,
+      });
     } else {
-      c.fillStyle = "#f5f7ff";
-      c.font = "bold 50px sans-serif";
-      c.fillText(`SCORE  ${String(this.score).padStart(3, "0")}`, 310, 110);
+      drawHoloText(
+        c,
+        `SCORE  ${String(this.score).padStart(3, "0")}`,
+        310,
+        114,
+        {
+          font: "bold 48px sans-serif",
+          color: HOLO.text,
+          glow: 0.4,
+          align: "center",
+          letterSpacing: 3,
+        },
+      );
       const speed = Math.round(
         ((START_TICK - this.tickInterval) / (START_TICK - MIN_TICK)) * 100,
       );
-      c.fillStyle = "#8b93c8";
-      c.font = "24px sans-serif";
-      c.fillText(`LENGTH ${this.body.length}      SPEED ${speed}%`, 310, 156);
+      drawHoloText(
+        c,
+        `LENGTH ${this.body.length}      SPEED ${speed}%`,
+        310,
+        156,
+        {
+          font: "22px sans-serif",
+          color: HOLO.lavender,
+          align: "center",
+          letterSpacing: 2,
+        },
+      );
     }
     this.hudTex.needsUpdate = true;
   }
@@ -681,31 +734,39 @@ export class SnakeGameSystem extends createSystem({}) {
       y,
       z,
       (c) => {
-      c.clearRect(0, 0, 128, 128);
-      c.fillStyle = "rgba(16,22,30,0.96)";
-      c.fillRect(0, 0, 128, 128);
-      c.fillStyle = "#46e0c0";
-      c.beginPath();
-      if (code === "up") {
-        c.moveTo(64, 26);
-        c.lineTo(102, 96);
-        c.lineTo(26, 96);
-      } else if (code === "down") {
-        c.moveTo(26, 32);
-        c.lineTo(102, 32);
-        c.lineTo(64, 102);
-      } else if (code === "left") {
-        c.moveTo(32, 64);
-        c.lineTo(102, 26);
-        c.lineTo(102, 102);
-      } else {
-        c.moveTo(96, 64);
-        c.lineTo(26, 26);
-        c.lineTo(26, 102);
-      }
-      c.closePath();
-      c.fill();
-    });
+        c.clearRect(0, 0, 128, 128);
+        drawHoloPanel(c, 8, 8, 112, 112, {
+          accent: HOLO.cyan,
+          radius: 16,
+          glow: 0.8,
+          brackets: false,
+        });
+        c.save();
+        c.fillStyle = HOLO.cyan;
+        c.shadowColor = HOLO.cyan;
+        c.shadowBlur = 14;
+        c.beginPath();
+        if (code === "up") {
+          c.moveTo(64, 32);
+          c.lineTo(98, 92);
+          c.lineTo(30, 92);
+        } else if (code === "down") {
+          c.moveTo(30, 36);
+          c.lineTo(98, 36);
+          c.lineTo(64, 96);
+        } else if (code === "left") {
+          c.moveTo(36, 64);
+          c.lineTo(96, 32);
+          c.lineTo(96, 96);
+        } else {
+          c.moveTo(92, 64);
+          c.lineTo(32, 32);
+          c.lineTo(32, 96);
+        }
+        c.closePath();
+        c.fill();
+        c.restore();
+      });
     return { e, dx, dz, prev: false };
   }
 

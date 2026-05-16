@@ -15,14 +15,22 @@ import {
 
 import { BlockGameSystem } from "./blockGame.js";
 import { gameHub, type GameId } from "./gameHub.js";
+import {
+  drawHoloPanel,
+  drawHoloText,
+  HOLO,
+  makeGlowMaterial,
+  makeScanlineTexture,
+  rgba,
+} from "./holoUi.js";
 import { SnakeGameSystem } from "./snakeGame.js";
 
 /**
  * GameMenuSystem — the launcher.
  *
- * This is the only system registered at boot. It builds a floating holographic
- * menu (two game cards) plus a persistent corner MENU button, and owns every
- * transition between games:
+ * This is the only system registered at boot. It builds a floating
+ * neon-holographic menu (two game cards) plus a persistent corner MENU button,
+ * and owns every transition between games:
  *
  *   - A card / key sets `gameHub.requested`.
  *   - `update()` notices the change and schedules `applyTransition()` as a
@@ -37,6 +45,17 @@ import { SnakeGameSystem } from "./snakeGame.js";
 const MENU_POS = { x: 0, y: 1.35, z: -1.0 }; // world position of the menu
 const MENU_BTN_POS = { x: 0, y: 0.55, z: -0.4 }; // corner "return" button
 
+interface MenuCard {
+  entity: Entity;
+  ctx: CanvasRenderingContext2D;
+  tex: CanvasTexture;
+  glow: Mesh; // additive halo behind the card
+  accent: string;
+  title: string;
+  subtitle: string;
+  hovered: boolean;
+}
+
 export class GameMenuSystem extends createSystem({}) {
   private menuRoot!: Group;
   private strataBtn!: Entity;
@@ -46,6 +65,13 @@ export class GameMenuSystem extends createSystem({}) {
   private current: GameId = "menu";
   private transitioning = false;
   private pressedPrev = { strata: false, snake: false, menu: false };
+
+  // --- visuals ---
+  private cards: MenuCard[] = [];
+  private outerGlow!: Mesh;
+  private menuBtnGlow!: Mesh;
+  private scanlineTex!: CanvasTexture;
+  private elapsed = 0;
 
   init() {
     this.buildMenu();
@@ -65,7 +91,8 @@ export class GameMenuSystem extends createSystem({}) {
     );
   }
 
-  update() {
+  update(delta: number) {
+    this.elapsed += delta;
     this.pollButtons();
     this.pollKeyboard();
 
@@ -78,10 +105,31 @@ export class GameMenuSystem extends createSystem({}) {
       });
     }
 
-    // Hover feedback — gently scale up whatever the pointer is over.
-    for (const e of [this.strataBtn, this.snakeBtn, this.menuBtnEntity]) {
-      e.object3D?.scale.setScalar(e.hasComponent(Hovered) ? 1.05 : 1);
+    // Breathing outer-glow halo + slow drifting scanlines.
+    const breath = 0.8 + 0.2 * Math.sin(this.elapsed * 2.2);
+    (this.outerGlow.material as MeshBasicMaterial).opacity = 0.24 * breath;
+    this.outerGlow.scale.setScalar(1 + 0.03 * Math.sin(this.elapsed * 2.2));
+    this.scanlineTex.offset.y = (this.elapsed * 0.03) % 1;
+
+    // Game cards: repaint on hover-change, scale, and pulse the halo.
+    for (const card of this.cards) {
+      const hovered = card.entity.hasComponent(Hovered);
+      if (hovered !== card.hovered) {
+        card.hovered = hovered;
+        this.drawCard(card);
+      }
+      card.entity.object3D?.scale.setScalar(hovered ? 1.06 : 1);
+      const base = hovered ? 0.55 : 0.22;
+      const speed = hovered ? 5.5 : 2.2;
+      (card.glow.material as MeshBasicMaterial).opacity =
+        base * (0.8 + 0.2 * Math.sin(this.elapsed * speed));
     }
+
+    // Corner MENU button.
+    const mbHover = this.menuBtnEntity.hasComponent(Hovered);
+    this.menuBtnEntity.object3D?.scale.setScalar(mbHover ? 1.06 : 1);
+    (this.menuBtnGlow.material as MeshBasicMaterial).opacity =
+      (mbHover ? 0.5 : 0.22) * (0.8 + 0.2 * Math.sin(this.elapsed * 3));
   }
 
   // --- transitions --------------------------------------------------------
@@ -164,107 +212,214 @@ export class GameMenuSystem extends createSystem({}) {
     this.menuRoot.position.set(MENU_POS.x, MENU_POS.y, MENU_POS.z);
     const menuEntity = this.world.createTransformEntity(this.menuRoot);
 
-    // Backboard.
-    const backboard = new Mesh(
-      new PlaneGeometry(1.06, 0.92),
+    // Soft outer-glow halo — makes the panel feel suspended in space.
+    this.outerGlow = new Mesh(
+      new PlaneGeometry(1.7, 1.52),
+      makeGlowMaterial(HOLO.cyan),
+    );
+    this.outerGlow.position.set(0, 0, -0.06);
+    this.menuRoot.add(this.outerGlow);
+
+    // Backboard — dark navy holographic panel.
+    const board = this.makePanel(1.18, 1.04, 1180, 1040);
+    drawHoloPanel(board.ctx, 30, 30, 1120, 980, {
+      accent: HOLO.cyan,
+      radius: 42,
+      glow: 1,
+    });
+    board.tex.needsUpdate = true;
+    board.mesh.position.set(0, 0, -0.03);
+    this.menuRoot.add(board.mesh);
+
+    // Drifting scanline overlay.
+    this.scanlineTex = makeScanlineTexture();
+    this.scanlineTex.repeat.set(34, 26);
+    const scan = new Mesh(
+      new PlaneGeometry(1.04, 0.88),
       new MeshBasicMaterial({
-        color: 0x0a0c18,
+        map: this.scanlineTex,
         transparent: true,
-        opacity: 0.82,
+        depthWrite: false,
       }),
     );
-    backboard.position.set(0, 0, -0.02);
-    this.menuRoot.add(backboard);
+    scan.position.set(0, 0, -0.018);
+    this.menuRoot.add(scan);
 
-    // Title (decorative, no interaction).
-    const title = this.panel(0.95, 0.275, 760, 220, (c) => {
-      c.textAlign = "center";
-      c.fillStyle = "#5fe0d0";
-      c.font = "bold 60px sans-serif";
-      c.fillText("IMMERSIVE ARCADE", 380, 96);
-      c.fillStyle = "#8b93c8";
-      c.font = "28px sans-serif";
-      c.fillText("select a game", 380, 150);
-    });
-    title.position.set(0, 0.3, 0);
-    this.menuRoot.add(title);
+    // Title + subtitle pill.
+    const title = this.makePanel(1.0, 0.32, 1000, 320);
+    this.drawTitle(title.ctx);
+    title.tex.needsUpdate = true;
+    title.mesh.position.set(0, 0.31, 0);
+    this.menuRoot.add(title.mesh);
 
-    // Game cards (interactive).
+    // Game cards.
     this.strataBtn = this.makeCard(
-      0.04,
+      0.05,
       "STRATA",
       "3D falling-blocks puzzle",
-      "#39c5d6",
+      HOLO.cyan,
       menuEntity,
     );
     this.snakeBtn = this.makeCard(
-      -0.23,
+      -0.24,
       "SERPENT GRID XR",
       "holographic snake arena",
-      "#4caf6a",
+      HOLO.green,
       menuEntity,
     );
+  }
+
+  private drawTitle(c: CanvasRenderingContext2D) {
+    c.clearRect(0, 0, 1000, 320);
+    drawHoloText(c, "IMMERSIVE ARCADE", 500, 128, {
+      font: "bold 74px sans-serif",
+      color: HOLO.cyanBright,
+      glow: 1.1,
+      align: "center",
+      letterSpacing: 5,
+    });
+    // subtitle pill
+    const pillW = 320;
+    const pillH = 58;
+    const px = 500 - pillW / 2;
+    const py = 196;
+    c.save();
+    c.strokeStyle = rgba(HOLO.cyan, 0.7);
+    c.shadowColor = HOLO.cyan;
+    c.shadowBlur = 12;
+    c.lineWidth = 2.5;
+    c.beginPath();
+    c.roundRect(px, py, pillW, pillH, pillH / 2);
+    c.stroke();
+    c.restore();
+    drawHoloText(c, "SELECT A GAME", 500, py + 39, {
+      font: "26px sans-serif",
+      color: HOLO.lavender,
+      align: "center",
+      letterSpacing: 5,
+    });
   }
 
   private makeCard(
     localY: number,
-    titleText: string,
+    title: string,
     subtitle: string,
     accent: string,
     parent: Entity,
   ): Entity {
-    const mesh = this.panel(0.82, 0.224, 660, 180, (c) => {
-      c.fillStyle = "rgba(16,18,34,0.97)";
-      c.fillRect(0, 0, 660, 180);
-      c.fillStyle = accent;
-      c.fillRect(0, 0, 14, 180);
-      c.textAlign = "left";
-      c.fillStyle = "#f5f7ff";
-      c.font = "bold 48px sans-serif";
-      c.fillText(titleText, 46, 86);
-      c.fillStyle = "#8b93c8";
-      c.font = "26px sans-serif";
-      c.fillText(subtitle, 46, 132);
-    });
-    mesh.position.set(0, localY, 0.01);
-    const entity = this.world.createTransformEntity(mesh, parent);
+    const panel = this.makePanel(0.86, 0.26, 760, 230);
+    panel.mesh.position.set(0, localY, 0.012);
+    const entity = this.world.createTransformEntity(panel.mesh, parent);
+
+    // Additive halo behind the card (a menuRoot child, so the card's
+    // hover-scale and the InputSystem raycast are unaffected by it).
+    const glow = new Mesh(new PlaneGeometry(1.04, 0.46), makeGlowMaterial(accent));
+    glow.position.set(0, localY, 0.004);
+    this.menuRoot.add(glow);
+
+    const card: MenuCard = {
+      entity,
+      ctx: panel.ctx,
+      tex: panel.tex,
+      glow,
+      accent,
+      title,
+      subtitle,
+      hovered: false,
+    };
+    this.cards.push(card);
+    this.drawCard(card);
     return entity;
   }
 
-  private buildMenuButton() {
-    const mesh = this.panel(0.22, 0.0856, 360, 140, (c) => {
-      c.fillStyle = "rgba(16,18,34,0.97)";
-      c.fillRect(0, 0, 360, 140);
-      c.fillStyle = "#5fe0d0";
-      // hamburger icon
-      for (let i = 0; i < 3; i++) c.fillRect(34, 44 + i * 22, 56, 10);
-      c.textAlign = "left";
-      c.fillStyle = "#f5f7ff";
-      c.font = "bold 44px sans-serif";
-      c.fillText("MENU", 118, 88);
+  /** Paint (or repaint) a game card — brighter glow while hovered. */
+  private drawCard(card: MenuCard) {
+    const c = card.ctx;
+    const W = 760;
+    const H = 230;
+    c.clearRect(0, 0, W, H);
+    const glow = card.hovered ? 1.4 : 0.85;
+    drawHoloPanel(c, 28, 28, W - 56, H - 56, {
+      accent: card.accent,
+      radius: 28,
+      glow,
     });
-    mesh.position.set(MENU_BTN_POS.x, MENU_BTN_POS.y, MENU_BTN_POS.z);
-    this.menuBtnEntity = this.world.createTransformEntity(mesh);
+
+    // Glowing side rail (replaces the old flat accent bar).
+    c.save();
+    c.shadowColor = card.accent;
+    c.shadowBlur = 24 * glow;
+    c.fillStyle = card.accent;
+    c.beginPath();
+    c.roundRect(48, 58, 13, H - 116, 6);
+    c.fill();
+    c.restore();
+
+    drawHoloText(c, card.title, 102, 120, {
+      font: "bold 58px sans-serif",
+      color: HOLO.text,
+      glow: card.hovered ? 0.6 : 0.25,
+      letterSpacing: 3,
+    });
+    drawHoloText(c, card.subtitle.toUpperCase(), 102, 172, {
+      font: "25px sans-serif",
+      color: HOLO.lavender,
+      letterSpacing: 2,
+    });
+    card.tex.needsUpdate = true;
   }
 
-  /** Build a flat panel mesh with a 2D-canvas texture. */
-  private panel(
+  private buildMenuButton() {
+    const panel = this.makePanel(0.26, 0.12, 380, 176);
+    const c = panel.ctx;
+    drawHoloPanel(c, 22, 22, 336, 132, {
+      accent: HOLO.cyan,
+      radius: 22,
+      glow: 0.9,
+    });
+    // glowing hamburger glyph
+    c.save();
+    c.shadowColor = HOLO.cyan;
+    c.shadowBlur = 12;
+    c.fillStyle = HOLO.cyan;
+    for (let i = 0; i < 3; i++) c.fillRect(58, 64 + i * 20, 52, 8);
+    c.restore();
+    drawHoloText(c, "MENU", 142, 102, {
+      font: "bold 42px sans-serif",
+      color: HOLO.text,
+      glow: 0.4,
+      letterSpacing: 3,
+    });
+    panel.tex.needsUpdate = true;
+    panel.mesh.position.set(MENU_BTN_POS.x, MENU_BTN_POS.y, MENU_BTN_POS.z);
+    this.menuBtnEntity = this.world.createTransformEntity(panel.mesh);
+
+    // Halo — a child of the button mesh, so it shows/hides and scales with it.
+    this.menuBtnGlow = new Mesh(
+      new PlaneGeometry(0.42, 0.26),
+      makeGlowMaterial(HOLO.cyan),
+    );
+    this.menuBtnGlow.position.set(0, 0, -0.012);
+    panel.mesh.add(this.menuBtnGlow);
+  }
+
+  /** Create a flat panel mesh + its 2D-canvas drawing context. */
+  private makePanel(
     w: number,
     h: number,
     cw: number,
     ch: number,
-    draw: (ctx: CanvasRenderingContext2D) => void,
-  ): Mesh {
+  ): { mesh: Mesh; ctx: CanvasRenderingContext2D; tex: CanvasTexture } {
     const canvas = document.createElement("canvas");
     canvas.width = cw;
     canvas.height = ch;
     const ctx = canvas.getContext("2d")!;
-    draw(ctx);
     const tex = new CanvasTexture(canvas);
     tex.colorSpace = SRGBColorSpace;
-    return new Mesh(
+    const mesh = new Mesh(
       new PlaneGeometry(w, h),
       new MeshBasicMaterial({ map: tex, transparent: true }),
     );
+    return { mesh, ctx, tex };
   }
 }
