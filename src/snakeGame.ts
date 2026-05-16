@@ -29,8 +29,6 @@ import {
   VisibilityState,
 } from "@iwsdk/core";
 
-import { gameHub } from "./gameHub.js";
-
 /**
  * Serpent Grid XR — a holographic tabletop Snake game.
  *
@@ -96,8 +94,8 @@ export class SnakeGameSystem extends createSystem({}) {
   private hudEntity!: Entity;
   private restartEntity!: Entity;
   private restartPrev = false;
-  private menuBtnEntity!: Entity;
-  private menuPrev = false;
+  private exitVrBtnEntity!: Entity;
+  private exitVrPrev = false;
   private actionCtx!: CanvasRenderingContext2D;
   private actionTex!: CanvasTexture;
   private actionLabel = "";
@@ -353,14 +351,14 @@ export class SnakeGameSystem extends createSystem({}) {
       if (now && !a.prev) this.setDir(a.dx, a.dz);
       a.prev = now;
     }
-    // New-game / restart + return-to-menu buttons beside the HUD.
+    // New-game / restart + exit-VR buttons beside the HUD.
     const rNow = this.restartEntity.hasComponent(Pressed);
     if (rNow && !this.restartPrev) this.onActionButton();
     this.restartPrev = rNow;
 
-    const mNow = this.menuBtnEntity.hasComponent(Pressed);
-    if (mNow && !this.menuPrev) gameHub.requested = "menu";
-    this.menuPrev = mNow;
+    const exitNow = this.exitVrBtnEntity.hasComponent(Pressed);
+    if (exitNow && !this.exitVrPrev) this.world.exitXR();
+    this.exitVrPrev = exitNow;
   }
 
   /** Steer toward where a tracked hand is pointing when it pinches. */
@@ -498,7 +496,7 @@ export class SnakeGameSystem extends createSystem({}) {
   }
 
   private buildHud() {
-    // The HUD panel and the restart / menu buttons share one tilted group, so
+    // The HUD panel and the restart / exit-VR buttons share one tilted group, so
     // the buttons always sit right next to the GAME OVER readout.
     const hudGroup = new Group();
     hudGroup.position.set(0, 0.34, -HALF - 0.03);
@@ -521,7 +519,7 @@ export class SnakeGameSystem extends createSystem({}) {
     hudGroup.add(hud);
 
     // New-game / restart button (its label tracks play state) plus
-    // return-to-menu, side by side just below the panel.
+    // an exit-VR button, side by side just below the panel.
     this.restartEntity = this.buildActionButton(
       this.hudEntity,
       -0.155,
@@ -530,7 +528,7 @@ export class SnakeGameSystem extends createSystem({}) {
     );
     this.actionLabel = "NEW GAME";
     this.drawActionButton("NEW GAME");
-    this.menuBtnEntity = this.makeButton(
+    this.exitVrBtnEntity = this.makeButton(
       this.hudEntity,
       0.29,
       0.08,
@@ -539,11 +537,11 @@ export class SnakeGameSystem extends createSystem({}) {
       0.155,
       -0.16,
       0.001,
-      (c) => this.drawTextButton(c, "MENU", "#46e0c0"),
+      (c) => this.drawTextButton(c, "EXIT VR", "#46e0c0"),
     );
   }
 
-  /** Shared draw routine for the MENU and action (NEW GAME / RESTART) buttons. */
+  /** Shared draw routine for the EXIT VR and action (NEW GAME / RESTART) buttons. */
   private drawTextButton(
     c: CanvasRenderingContext2D,
     label: string,
