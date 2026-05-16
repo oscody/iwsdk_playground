@@ -1,6 +1,7 @@
 import { SessionMode, World } from "@iwsdk/core";
 
 import { GameMenuSystem } from "./gameMenu.js";
+import { PlayerTunerSystem } from "./playerTuner.js";
 
 /**
  * Immersive Arcade — a launcher hosting multiple WebXR games built on the
@@ -20,4 +21,7 @@ World.create(document.getElementById("scene-container") as HTMLDivElement, {
   },
 }).then((world) => {
   world.registerSystem(GameMenuSystem);
+  // Dev overlay — adjust player height with PageUp/PageDown. Remove this line
+  // (and src/playerTuner.ts) once the player position is dialed in.
+  world.registerSystem(PlayerTunerSystem);
 });
