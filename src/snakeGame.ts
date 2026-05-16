@@ -62,8 +62,8 @@ const BOARD = { x: 0, y: 0.92, z: -0.55 }; // board centre, world space
 
 const START_TICK = 0.34; // seconds per move at the start
 const MIN_TICK = 0.12; // fastest tick
-const TICK_STEP = 0.012; // tick shortened per orb eaten
-const START_LEN = 3;
+const TICK_STEP = 0.025; // tick shortened per orb eaten
+const START_LEN = 1; // initial serpent length in segments (head counts as 1)
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
