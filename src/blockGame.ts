@@ -6,11 +6,13 @@ import {
   DirectionalLight,
   DoubleSide,
   EdgesGeometry,
+  Entity,
   GridHelper,
   Group,
   InputComponent,
   LineBasicMaterial,
   LineSegments,
+  Material,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -87,6 +89,7 @@ interface Piece {
 
 export class BlockGameSystem extends createSystem({}) {
   private gameRoot!: Group;
+  private rootEntity!: Entity;
   private pit!: Group;
   private cubeGeo!: BoxGeometry;
   private settledMats!: MeshStandardMaterial[];
@@ -105,8 +108,27 @@ export class BlockGameSystem extends createSystem({}) {
   private gameOver = false;
 
   init() {
+    // Non-immersive (browser) view: peer down into the pit. In an XR session
+    // the headset drives the camera instead.
+    this.world.camera.position.set(0, 1.72, 0.34);
+    this.world.camera.lookAt(0, 1.02, -0.6);
+
     this.buildScene();
     this.startGame();
+
+    // Tear down cleanly when the launcher unregisters this system.
+    this.cleanupFuncs.push(() => {
+      this.gameRoot.traverse((obj) => {
+        const mesh = obj as Mesh;
+        mesh.geometry?.dispose?.();
+        const mat = mesh.material as Material | Material[] | undefined;
+        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+        else mat?.dispose?.();
+      });
+      this.scoreTex.dispose();
+      this.rootEntity.dispose();
+    });
+
     console.log(
       "[Strata] Controls — Arrows/WASD move, Q/E rotate, Space hard-drop, " +
         "Shift soft-drop, R restart. XR — thumbstick move, A/B or X/Y rotate, " +
@@ -141,7 +163,7 @@ export class BlockGameSystem extends createSystem({}) {
 
   private buildScene() {
     this.gameRoot = new Group();
-    this.world.createTransformEntity(this.gameRoot);
+    this.rootEntity = this.world.createTransformEntity(this.gameRoot);
 
     // Lighting (the materials also self-illuminate, so the pit reads even
     // before the SDK's default lights kick in).
