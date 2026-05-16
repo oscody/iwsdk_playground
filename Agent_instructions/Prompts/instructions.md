@@ -17,4 +17,4 @@ Move a controller:
 "Position the right controller at (0.3, 1.2, -0.5) and take a screenshot."
 
 
-Accept the XR session for "SERPENT GRID XR" and take a screenshot 
+Accept the XR session for "SERPENT GRID XR" and play the game
