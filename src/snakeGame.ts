@@ -58,12 +58,19 @@ const SPAN = GRID * TILE; // board side length
 const HALF = SPAN / 2;
 const SEG_Y = TILE * 0.5; // height of segment/orb centres above the board
 
-const BOARD = { x: 0, y: 0.92, z: -0.55 }; // board centre, world space
+const BOARD = { x: 0, y: 0.37, z: -1.03 }; // board centre, world space
 
 const START_TICK = 0.34; // seconds per move at the start
 const MIN_TICK = 0.12; // fastest tick
 const TICK_STEP = 0.025; // tick shortened per orb eaten
 const START_LEN = 1; // initial serpent length in segments (head counts as 1)
+const BOARD_MOVE_STEP = TILE; // metres moved by the board per button press
+
+declare global {
+  interface Window {
+    __snakeBoardCoords?: { x: number; y: number; z: number };
+  }
+}
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -99,6 +106,7 @@ export class SnakeGameSystem extends createSystem({}) {
   private hudGlow!: Mesh;
 
   private arrows: Arrow[] = [];
+  private boardMoveArrows: Arrow[] = [];
   private hudEntity!: Entity;
   private restartEntity!: Entity;
   private restartPrev = false;
@@ -144,6 +152,7 @@ export class SnakeGameSystem extends createSystem({}) {
         else mat?.dispose?.();
       });
       this.hudTex.dispose();
+      window.__snakeBoardCoords = undefined;
       this.rootEntity.dispose();
     });
 
@@ -172,6 +181,7 @@ export class SnakeGameSystem extends createSystem({}) {
     }
 
     this.updateActionButton();
+    this.publishBoardCoords();
     this.renderSnake();
     // Energy orb pulse + holographic HUD halo.
     this.orbMesh.scale.setScalar(1 + Math.sin(this.elapsed * 4) * 0.16);
@@ -361,6 +371,11 @@ export class SnakeGameSystem extends createSystem({}) {
       if (now && !a.prev) this.setDir(a.dx, a.dz);
       a.prev = now;
     }
+    for (const a of this.boardMoveArrows) {
+      const now = a.e.hasComponent(Pressed);
+      if (now && !a.prev) this.moveBoard(a.dx, a.dz);
+      a.prev = now;
+    }
     // New-game / restart + exit-VR buttons beside the HUD.
     const rNow = this.restartEntity.hasComponent(Pressed);
     if (rNow && !this.restartPrev) this.onActionButton();
@@ -381,6 +396,20 @@ export class SnakeGameSystem extends createSystem({}) {
     else this.setDir(0, Math.sign(pz) || -1);
   }
 
+  private moveBoard(dx: number, dz: number) {
+    this.board.position.x += dx * BOARD_MOVE_STEP;
+    this.board.position.z += dz * BOARD_MOVE_STEP;
+    this.publishBoardCoords();
+  }
+
+  private publishBoardCoords() {
+    window.__snakeBoardCoords = {
+      x: this.board.position.x,
+      y: this.board.position.y,
+      z: this.board.position.z,
+    };
+  }
+
   // --- scene construction -------------------------------------------------
 
   private buildScene() {
@@ -395,6 +424,7 @@ export class SnakeGameSystem extends createSystem({}) {
 
     this.board = new Group();
     this.board.position.set(BOARD.x, BOARD.y, BOARD.z);
+    this.publishBoardCoords();
     this.boardEntity = this.world.createTransformEntity(
       this.board,
       this.rootEntity,
@@ -557,6 +587,7 @@ export class SnakeGameSystem extends createSystem({}) {
       0.001,
       (c) => this.drawTextButton(c, "EXIT VR", "#46e0c0"),
     );
+
   }
 
   /** Shared draw routine for the EXIT VR and action (NEW GAME / RESTART) buttons. */
@@ -714,6 +745,15 @@ export class SnakeGameSystem extends createSystem({}) {
       this.makeArrow("left", cx - s, cy, cz, -1, 0),
       this.makeArrow("right", cx + s, cy, cz, 1, 0),
     ];
+
+    const moveY = 0.08;
+    const edge = HALF + 0.14;
+    this.boardMoveArrows = [
+      this.makeBoardMoveArrow("up", 0, moveY, -edge, 0, -1),
+      this.makeBoardMoveArrow("down", 0, moveY, edge, 0, 1),
+      this.makeBoardMoveArrow("left", -edge, moveY, 0, -1, 0),
+      this.makeBoardMoveArrow("right", edge, moveY, 0, 1, 0),
+    ];
   }
 
   private makeArrow(
@@ -768,6 +808,17 @@ export class SnakeGameSystem extends createSystem({}) {
         c.restore();
       });
     return { e, dx, dz, prev: false };
+  }
+
+  private makeBoardMoveArrow(
+    code: "up" | "down" | "left" | "right",
+    x: number,
+    y: number,
+    z: number,
+    dx: number,
+    dz: number,
+  ): Arrow {
+    return this.makeArrow(code, x, y, z, dx, dz);
   }
 
   /** Build a flat canvas-textured panel entity that reacts to ray + poke. */
