@@ -98,6 +98,9 @@ export class SnakeGameSystem extends createSystem({}) {
   private restartPrev = false;
   private menuBtnEntity!: Entity;
   private menuPrev = false;
+  private actionCtx!: CanvasRenderingContext2D;
+  private actionTex!: CanvasTexture;
+  private actionLabel = "";
 
   private body: Cell[] = [];
   private prevBody: Cell[] = [];
@@ -109,6 +112,7 @@ export class SnakeGameSystem extends createSystem({}) {
   private tickInterval = START_TICK;
   private score = 0;
   private gameOver = false;
+  private started = false; // false = idle "ready" state; true once the round began
   private elapsed = 0;
   private tmpDir = new Vector3();
 
@@ -138,9 +142,9 @@ export class SnakeGameSystem extends createSystem({}) {
     });
 
     console.log(
-      "[Serpent Grid XR] Steer — Arrows/WASD, controller thumbstick, the " +
-        "floating arrow buttons (ray or poke), or point-and-pinch with a " +
-        "tracked hand. R / trigger / RESTART to play again.",
+      "[Serpent Grid XR] Press NEW GAME (or steer) to begin. Steer — " +
+        "Arrows/WASD, controller thumbstick, the floating arrow buttons " +
+        "(ray or poke), or point-and-pinch with a tracked hand.",
     );
   }
 
@@ -152,7 +156,8 @@ export class SnakeGameSystem extends createSystem({}) {
 
     this.handleInput();
 
-    if (!this.gameOver) {
+    // The serpent only advances once the round has begun.
+    if (this.started && !this.gameOver) {
       this.tickTimer += delta;
       while (this.tickTimer >= this.tickInterval && !this.gameOver) {
         this.tickTimer -= this.tickInterval;
@@ -160,6 +165,7 @@ export class SnakeGameSystem extends createSystem({}) {
       }
     }
 
+    this.updateActionButton();
     this.renderSnake();
     // Energy orb pulse.
     this.orbMesh.scale.setScalar(1 + Math.sin(this.elapsed * 4) * 0.16);
@@ -178,6 +184,7 @@ export class SnakeGameSystem extends createSystem({}) {
     this.tickInterval = START_TICK;
     this.tickTimer = 0;
     this.gameOver = false;
+    this.started = false; // wait for the player to begin — snake stays idle
     this.spawnOrb();
     this.ensureSegmentMeshes();
     this.drawHud();
@@ -228,6 +235,13 @@ export class SnakeGameSystem extends createSystem({}) {
 
   private setDir(dx: number, dz: number) {
     if (this.gameOver) return;
+    // The first steering input begins the round — any direction is allowed.
+    if (!this.started) {
+      this.dir = { x: dx, z: dz };
+      this.nextDir = { x: dx, z: dz };
+      this.started = true;
+      return;
+    }
     // Reject a 180° reversal of the current heading.
     if (dx === -this.nextDir.x && dz === -this.nextDir.z) return;
     this.nextDir = { x: dx, z: dz };
@@ -313,7 +327,7 @@ export class SnakeGameSystem extends createSystem({}) {
     if (kb.getKeyDown("ArrowDown") || kb.getKeyDown("KeyS")) this.setDir(0, 1);
     if (kb.getKeyDown("ArrowLeft") || kb.getKeyDown("KeyA")) this.setDir(-1, 0);
     if (kb.getKeyDown("ArrowRight") || kb.getKeyDown("KeyD")) this.setDir(1, 0);
-    if (kb.getKeyDown("KeyR") && this.gameOver) this.startGame();
+    if (kb.getKeyDown("KeyR") && this.gameOver) this.onActionButton();
 
     const pads = this.input.xr.gamepads;
     for (const hand of ["left", "right"] as const) {
@@ -325,7 +339,7 @@ export class SnakeGameSystem extends createSystem({}) {
       if (g.getAxesEnteringLeft(ts)) this.setDir(-1, 0);
       if (g.getAxesEnteringRight(ts)) this.setDir(1, 0);
       if (g.getButtonDown(InputComponent.Trigger) && this.gameOver) {
-        this.startGame();
+        this.onActionButton();
       }
       // Hand point-and-pinch steering.
       if (this.input.xr.isPrimary("hand", hand) && g.getSelectStart()) {
@@ -339,9 +353,9 @@ export class SnakeGameSystem extends createSystem({}) {
       if (now && !a.prev) this.setDir(a.dx, a.dz);
       a.prev = now;
     }
-    // Restart + return-to-menu buttons beside the HUD.
+    // New-game / restart + return-to-menu buttons beside the HUD.
     const rNow = this.restartEntity.hasComponent(Pressed);
-    if (rNow && !this.restartPrev && this.gameOver) this.startGame();
+    if (rNow && !this.restartPrev) this.onActionButton();
     this.restartPrev = rNow;
 
     const mNow = this.menuBtnEntity.hasComponent(Pressed);
@@ -506,18 +520,16 @@ export class SnakeGameSystem extends createSystem({}) {
     );
     hudGroup.add(hud);
 
-    // Restart + return-to-menu, side by side just below the panel.
-    this.restartEntity = this.makeButton(
+    // New-game / restart button (its label tracks play state) plus
+    // return-to-menu, side by side just below the panel.
+    this.restartEntity = this.buildActionButton(
       this.hudEntity,
-      0.29,
-      0.08,
-      360,
-      100,
       -0.155,
       -0.16,
       0.001,
-      (c) => this.drawTextButton(c, "RESTART", "#ffb020"),
     );
+    this.actionLabel = "NEW GAME";
+    this.drawActionButton("NEW GAME");
     this.menuBtnEntity = this.makeButton(
       this.hudEntity,
       0.29,
@@ -531,7 +543,7 @@ export class SnakeGameSystem extends createSystem({}) {
     );
   }
 
-  /** Shared draw routine for the RESTART / MENU text buttons. */
+  /** Shared draw routine for the MENU and action (NEW GAME / RESTART) buttons. */
   private drawTextButton(
     c: CanvasRenderingContext2D,
     label: string,
@@ -546,6 +558,56 @@ export class SnakeGameSystem extends createSystem({}) {
     c.fillStyle = "#f5f7ff";
     c.font = "bold 40px sans-serif";
     c.fillText(label, 180, 66);
+  }
+
+  /** Build the redrawable action button — label flips NEW GAME <-> RESTART. */
+  private buildActionButton(
+    parent: Entity,
+    x: number,
+    y: number,
+    z: number,
+  ): Entity {
+    const canvas = document.createElement("canvas");
+    canvas.width = 360;
+    canvas.height = 100;
+    this.actionCtx = canvas.getContext("2d")!;
+    this.actionTex = new CanvasTexture(canvas);
+    this.actionTex.colorSpace = SRGBColorSpace;
+    const mesh = new Mesh(
+      new PlaneGeometry(0.29, 0.08),
+      new MeshBasicMaterial({ map: this.actionTex, transparent: true }),
+    );
+    mesh.position.set(x, y, z);
+    const e = this.world.createTransformEntity(mesh, parent);
+    e.addComponent(RayInteractable);
+    e.addComponent(PokeInteractable);
+    return e;
+  }
+
+  /** Repaint the action button with the given label. */
+  private drawActionButton(label: string) {
+    const accent = label === "RESTART" ? "#ffb020" : "#32d06e";
+    this.drawTextButton(this.actionCtx, label, accent);
+    this.actionTex.needsUpdate = true;
+  }
+
+  /**
+   * Keep the action button in sync with play state: it reads "RESTART" only
+   * while the serpent is moving, and "NEW GAME" otherwise (the idle "ready"
+   * state on scene entry, and after a game over).
+   */
+  private updateActionButton() {
+    const label = this.started && !this.gameOver ? "RESTART" : "NEW GAME";
+    if (label === this.actionLabel) return;
+    this.actionLabel = label;
+    this.drawActionButton(label);
+  }
+
+  /** Handle a press of the action button (NEW GAME / RESTART). */
+  private onActionButton() {
+    // Re-place the serpent unless it is already sitting idle at the start.
+    if (this.gameOver || this.started) this.startGame();
+    this.started = true; // begin moving
   }
 
   private drawHud() {
