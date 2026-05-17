@@ -29,12 +29,9 @@ import {
   VisibilityState,
 } from "@iwsdk/core";
 
-import {
-  drawHoloPanel,
-  drawHoloText,
-  HOLO,
-  makeGlowMaterial,
-} from "./holoUi.js";
+import { drawHoloPanel, HOLO } from "./holoUi.js";
+import { setSnakeLayoutCoords } from "./layoutState.js";
+import { SnakeHud } from "./snakeHud.js";
 
 /**
  * Serpent Grid XR — a holographic tabletop Snake game.
@@ -58,7 +55,7 @@ const SPAN = GRID * TILE; // board side length
 const HALF = SPAN / 2;
 const SEG_Y = TILE * 0.5; // height of segment/orb centres above the board
 
-const BOARD = { x: 0, y: 0.37, z: -1.03 }; // board centre, world space
+const BOARD = { x: 0, y: 1.0, z: -0.85 }; // board centre, world space
 
 const START_TICK = 0.34; // seconds per move at the start
 const MIN_TICK = 0.12; // fastest tick
@@ -66,13 +63,9 @@ const TICK_STEP = 0.025; // tick shortened per orb eaten
 const START_LEN = 1; // initial serpent length in segments (head counts as 1)
 const BOARD_MOVE_STEP = TILE; // metres moved by the board per button press
 
-declare global {
-  interface Window {
-    __snakeBoardCoords?: { x: number; y: number; z: number };
-    __snakeHudCoords?: { x: number; y: number; z: number };
-    __snakeHudControlsCoords?: { x: number; y: number; z: number };
-  }
-}
+// Dev toggle — set to false to hide the whole board (plate, grid, frame,
+// serpent, orb, steering + move arrows) and test the HUD on its own.
+const SHOW_BOARD = true;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -103,22 +96,14 @@ export class SnakeGameSystem extends createSystem({}) {
   private orbMesh!: Mesh;
   private gameOverAudio!: Entity;
 
-  private hudCtx!: CanvasRenderingContext2D;
-  private hudTex!: CanvasTexture;
-  private hudGlow!: Mesh;
+  private hud!: SnakeHud;
 
   private arrows: Arrow[] = [];
   private boardMoveArrows: Arrow[] = [];
-  private hudBoardMoveArrows: Arrow[] = [];
-  private hudEntity!: Entity;
-  private hudControlsEntity!: Entity;
   private restartEntity!: Entity;
   private restartPrev = false;
   private exitVrBtnEntity!: Entity;
   private exitVrPrev = false;
-  private actionCtx!: CanvasRenderingContext2D;
-  private actionTex!: CanvasTexture;
-  private actionLabel = "";
 
   private body: Cell[] = [];
   private prevBody: Cell[] = [];
@@ -155,10 +140,9 @@ export class SnakeGameSystem extends createSystem({}) {
         if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
         else mat?.dispose?.();
       });
-      this.hudTex.dispose();
-      window.__snakeBoardCoords = undefined;
-      window.__snakeHudCoords = undefined;
-      window.__snakeHudControlsCoords = undefined;
+      this.hud.dispose();
+      setSnakeLayoutCoords("board", undefined);
+      setSnakeLayoutCoords("hud", undefined);
       this.rootEntity.dispose();
     });
 
@@ -191,8 +175,7 @@ export class SnakeGameSystem extends createSystem({}) {
     this.renderSnake();
     // Energy orb pulse + holographic HUD halo.
     this.orbMesh.scale.setScalar(1 + Math.sin(this.elapsed * 4) * 0.16);
-    (this.hudGlow.material as MeshBasicMaterial).opacity =
-      0.2 * (0.8 + 0.2 * Math.sin(this.elapsed * 2));
+    this.hud.updateGlow(this.elapsed);
   }
 
   // --- game loop ----------------------------------------------------------
@@ -382,7 +365,7 @@ export class SnakeGameSystem extends createSystem({}) {
       if (now && !a.prev) this.moveBoard(a.dx, a.dz);
       a.prev = now;
     }
-    for (const a of this.hudBoardMoveArrows) {
+    for (const a of this.hud.hudBoardMoveArrows) {
       const now = a.e.hasComponent(Pressed);
       if (now && !a.prev) this.moveHudControls(a.dx, a.dz);
       a.prev = now;
@@ -414,43 +397,27 @@ export class SnakeGameSystem extends createSystem({}) {
   }
 
   private moveHudControls(dx: number, dz: number) {
-    const stepX = dx * BOARD_MOVE_STEP;
-    const stepZ = dz * BOARD_MOVE_STEP;
-    const hud = this.hudEntity.object3D;
-    const hudControls = this.hudControlsEntity.object3D;
-    hud.position.x += stepX;
-    hud.position.z += stepZ;
-    hudControls.position.x += stepX;
-    hudControls.position.z += stepZ;
+    this.hud.move(dx, dz, BOARD_MOVE_STEP);
     this.publishLayoutCoords();
   }
 
   private publishBoardCoords() {
-    window.__snakeBoardCoords = {
+    setSnakeLayoutCoords("board", {
       x: this.board.position.x,
       y: this.board.position.y,
       z: this.board.position.z,
-    };
+    });
   }
 
   private publishLayoutCoords() {
     this.publishBoardCoords();
-    const hud = this.hudEntity?.object3D;
-    const hudControls = this.hudControlsEntity?.object3D;
-    if (hud) {
-      window.__snakeHudCoords = {
-        x: hud.position.x,
-        y: hud.position.y,
-        z: hud.position.z,
-      };
-    }
-    if (hudControls) {
-      window.__snakeHudControlsCoords = {
-        x: hudControls.position.x,
-        y: hudControls.position.y,
-        z: hudControls.position.z,
-      };
-    }
+    const hud = this.hud?.position;
+    if (!hud) return;
+    setSnakeLayoutCoords("hud", {
+      x: hud.x,
+      y: hud.y,
+      z: hud.z,
+    });
   }
 
   // --- scene construction -------------------------------------------------
@@ -472,6 +439,7 @@ export class SnakeGameSystem extends createSystem({}) {
       this.board,
       this.rootEntity,
     );
+    this.board.visible = SHOW_BOARD; // dev toggle (see SHOW_BOARD above)
 
     // Base plate.
     const plate = new Mesh(
@@ -579,125 +547,17 @@ export class SnakeGameSystem extends createSystem({}) {
   }
 
   private buildHud() {
-    // The score panel and its controls live in separate world-space groups.
-    const hudGroup = new Group();
-    hudGroup.position.set(BOARD.x, BOARD.y + 0.34, BOARD.z - HALF - 0.03);
-    hudGroup.rotation.x = -0.32; // tilt up toward the elevated viewer
-    this.hudEntity = this.world.createTransformEntity(
-      hudGroup,
-      this.rootEntity,
-    );
-
-    const hudControlsGroup = new Group();
-    hudControlsGroup.position.set(BOARD.x, BOARD.y + 0.14, BOARD.z - HALF - 0.03);
-    hudControlsGroup.rotation.x = -0.32;
-    this.hudControlsEntity = this.world.createTransformEntity(
-      hudControlsGroup,
-      this.rootEntity,
-    );
-
-    const canvas = document.createElement("canvas");
-    canvas.width = 620;
-    canvas.height = 190;
-    this.hudCtx = canvas.getContext("2d")!;
-    this.hudTex = new CanvasTexture(canvas);
-    this.hudTex.colorSpace = SRGBColorSpace;
-    const hud = new Mesh(
-      new PlaneGeometry(0.62, 0.19),
-      new MeshBasicMaterial({ map: this.hudTex, transparent: true }),
-    );
-    hudGroup.add(hud);
-
-    // Soft holographic halo behind the HUD.
-    this.hudGlow = new Mesh(
-      new PlaneGeometry(0.92, 0.42),
-      makeGlowMaterial(HOLO.cyan),
-    );
-    this.hudGlow.position.set(0, 0, -0.01);
-    hudGroup.add(this.hudGlow);
-
-    // New-game / restart button (its label tracks play state) plus
-    // an exit-VR button, side by side just below the panel.
-    this.restartEntity = this.buildActionButton(
-      this.hudControlsEntity,
-      -0.155,
-      0,
-      0.001,
-    );
-    this.actionLabel = "NEW GAME";
-    this.drawActionButton("NEW GAME");
-    this.exitVrBtnEntity = this.makeButton(
-      this.hudControlsEntity,
-      0.29,
-      0.08,
-      360,
-      100,
-      0.155,
-      0,
-      0.001,
-      (c) => this.drawTextButton(c, "EXIT VR", "#46e0c0"),
-    );
-
-    this.hudBoardMoveArrows = [
-      this.makeHudBoardMoveArrow("up", 0, 0.35, 0.001, 0, -1),
-      this.makeHudBoardMoveArrow("down", 0, -0.11, 0.001, 0, 1),
-      this.makeHudBoardMoveArrow("left", -0.35, 0, 0.001, -1, 0),
-      this.makeHudBoardMoveArrow("right", 0.35, 0, 0.001, 1, 0),
-    ];
+    // Float the HUD slightly above the board's far edge, tilted toward the
+    // player — relative to BOARD so it tracks the board if that moves.
+    this.hud = new SnakeHud({
+      world: this.world,
+      parent: this.rootEntity,
+      position: { x: BOARD.x, y: BOARD.y + 0.34, z: BOARD.z - HALF - 0.39 },
+      rotationX: -0.32,
+    });
+    this.restartEntity = this.hud.restartEntity;
+    this.exitVrBtnEntity = this.hud.exitVrBtnEntity;
     this.publishLayoutCoords();
-  }
-
-  /** Shared draw routine for the EXIT VR and action (NEW GAME / RESTART) buttons. */
-  private drawTextButton(
-    c: CanvasRenderingContext2D,
-    label: string,
-    accent: string,
-  ) {
-    c.clearRect(0, 0, 360, 100);
-    drawHoloPanel(c, 14, 14, 332, 72, {
-      accent,
-      radius: 16,
-      glow: 0.9,
-      brackets: false,
-    });
-    drawHoloText(c, label, 180, 62, {
-      font: "bold 36px sans-serif",
-      color: HOLO.text,
-      glow: 0.45,
-      align: "center",
-      letterSpacing: 2,
-    });
-  }
-
-  /** Build the redrawable action button — label flips NEW GAME <-> RESTART. */
-  private buildActionButton(
-    parent: Entity,
-    x: number,
-    y: number,
-    z: number,
-  ): Entity {
-    const canvas = document.createElement("canvas");
-    canvas.width = 360;
-    canvas.height = 100;
-    this.actionCtx = canvas.getContext("2d")!;
-    this.actionTex = new CanvasTexture(canvas);
-    this.actionTex.colorSpace = SRGBColorSpace;
-    const mesh = new Mesh(
-      new PlaneGeometry(0.29, 0.08),
-      new MeshBasicMaterial({ map: this.actionTex, transparent: true }),
-    );
-    mesh.position.set(x, y, z);
-    const e = this.world.createTransformEntity(mesh, parent);
-    e.addComponent(RayInteractable);
-    e.addComponent(PokeInteractable);
-    return e;
-  }
-
-  /** Repaint the action button with the given label. */
-  private drawActionButton(label: string) {
-    const accent = label === "RESTART" ? HOLO.amber : HOLO.green;
-    this.drawTextButton(this.actionCtx, label, accent);
-    this.actionTex.needsUpdate = true;
   }
 
   /**
@@ -706,10 +566,7 @@ export class SnakeGameSystem extends createSystem({}) {
    * state on scene entry, and after a game over).
    */
   private updateActionButton() {
-    const label = this.started && !this.gameOver ? "RESTART" : "NEW GAME";
-    if (label === this.actionLabel) return;
-    this.actionLabel = label;
-    this.drawActionButton(label);
+    this.hud.updateActionButton(this.started, this.gameOver);
   }
 
   /** Handle a press of the action button (NEW GAME / RESTART). */
@@ -720,74 +577,14 @@ export class SnakeGameSystem extends createSystem({}) {
   }
 
   private drawHud() {
-    const c = this.hudCtx;
-    c.clearRect(0, 0, 620, 190);
-    drawHoloPanel(c, 16, 16, 588, 158, {
-      accent: HOLO.cyan,
-      radius: 22,
-      glow: 1,
+    this.hud.drawHud({
+      score: this.score,
+      length: this.body.length,
+      gameOver: this.gameOver,
+      tickInterval: this.tickInterval,
+      startTick: START_TICK,
+      minTick: MIN_TICK,
     });
-
-    drawHoloText(c, "SERPENT GRID XR", 310, 52, {
-      font: "bold 25px sans-serif",
-      color: HOLO.cyan,
-      glow: 0.7,
-      align: "center",
-      letterSpacing: 4,
-    });
-
-    if (this.gameOver) {
-      drawHoloText(c, "GAME OVER", 310, 110, {
-        font: "bold 44px sans-serif",
-        color: HOLO.red,
-        glow: 0.9,
-        align: "center",
-        letterSpacing: 3,
-      });
-      drawHoloText(
-        c,
-        `SCORE ${this.score}   ·   LENGTH ${this.body.length}`,
-        310,
-        144,
-        { font: "23px sans-serif", color: HOLO.lavender, align: "center" },
-      );
-      drawHoloText(c, "PRESS R · TRIGGER · RESTART", 310, 170, {
-        font: "17px sans-serif",
-        color: HOLO.lavender,
-        align: "center",
-        letterSpacing: 2,
-      });
-    } else {
-      drawHoloText(
-        c,
-        `SCORE  ${String(this.score).padStart(3, "0")}`,
-        310,
-        114,
-        {
-          font: "bold 48px sans-serif",
-          color: HOLO.text,
-          glow: 0.4,
-          align: "center",
-          letterSpacing: 3,
-        },
-      );
-      const speed = Math.round(
-        ((START_TICK - this.tickInterval) / (START_TICK - MIN_TICK)) * 100,
-      );
-      drawHoloText(
-        c,
-        `LENGTH ${this.body.length}      SPEED ${speed}%`,
-        310,
-        156,
-        {
-          font: "22px sans-serif",
-          color: HOLO.lavender,
-          align: "center",
-          letterSpacing: 2,
-        },
-      );
-    }
-    this.hudTex.needsUpdate = true;
   }
 
   private buildControls() {
@@ -806,10 +603,10 @@ export class SnakeGameSystem extends createSystem({}) {
     const moveY = 0.08;
     const edge = HALF + 0.14;
     this.boardMoveArrows = [
-      this.makeBoardMoveArrow("up", 0, moveY, -edge, 0, -1),
-      this.makeBoardMoveArrow("down", 0, moveY, edge, 0, 1),
-      this.makeBoardMoveArrow("left", -edge, moveY, 0, -1, 0),
-      this.makeBoardMoveArrow("right", edge, moveY, 0, 1, 0),
+      this.makeArrow("up", 0, moveY, -edge, 0, -1),
+      this.makeArrow("down", 0, moveY, edge, 0, 1),
+      this.makeArrow("left", -edge, moveY, 0, -1, 0),
+      this.makeArrow("right", edge, moveY, 0, 1, 0),
     ];
   }
 
@@ -821,116 +618,83 @@ export class SnakeGameSystem extends createSystem({}) {
     dx: number,
     dz: number,
   ): Arrow {
-    const e = this.makeButton(
-      this.boardEntity,
-      0.076,
-      0.076,
-      128,
-      128,
+    return this.makeArrowButton({
+      parent: this.boardEntity,
+      code,
       x,
       y,
       z,
-      (c) => {
-        c.clearRect(0, 0, 128, 128);
-        drawHoloPanel(c, 8, 8, 112, 112, {
-          accent: HOLO.cyan,
-          radius: 16,
-          glow: 0.8,
-          brackets: false,
-        });
-        c.save();
-        c.fillStyle = HOLO.cyan;
-        c.shadowColor = HOLO.cyan;
-        c.shadowBlur = 14;
-        c.beginPath();
-        if (code === "up") {
-          c.moveTo(64, 32);
-          c.lineTo(98, 92);
-          c.lineTo(30, 92);
-        } else if (code === "down") {
-          c.moveTo(30, 36);
-          c.lineTo(98, 36);
-          c.lineTo(64, 96);
-        } else if (code === "left") {
-          c.moveTo(36, 64);
-          c.lineTo(96, 32);
-          c.lineTo(96, 96);
-        } else {
-          c.moveTo(92, 64);
-          c.lineTo(32, 32);
-          c.lineTo(32, 96);
-        }
-        c.closePath();
-        c.fill();
-        c.restore();
-      });
-    return { e, dx, dz, prev: false };
+      dx,
+      dz,
+      accent: HOLO.cyan,
+      size: 0.076,
+    });
   }
 
-  private makeBoardMoveArrow(
-    code: "up" | "down" | "left" | "right",
-    x: number,
-    y: number,
-    z: number,
-    dx: number,
-    dz: number,
-  ): Arrow {
-    return this.makeArrow(code, x, y, z, dx, dz);
-  }
-
-  private makeHudBoardMoveArrow(
-    code: "up" | "down" | "left" | "right",
-    x: number,
-    y: number,
-    z: number,
-    dx: number,
-    dz: number,
-  ): Arrow {
-    const e = this.makeButton(
-      this.hudControlsEntity,
-      0.062,
-      0.062,
-      128,
-      128,
-      x,
-      y,
-      z,
-      (c) => {
-        c.clearRect(0, 0, 128, 128);
-        drawHoloPanel(c, 8, 8, 112, 112, {
-          accent: HOLO.green,
-          radius: 16,
-          glow: 0.8,
-          brackets: false,
-        });
-        c.save();
-        c.fillStyle = HOLO.green;
-        c.shadowColor = HOLO.green;
-        c.shadowBlur = 14;
-        c.beginPath();
-        if (code === "up") {
-          c.moveTo(64, 32);
-          c.lineTo(98, 92);
-          c.lineTo(30, 92);
-        } else if (code === "down") {
-          c.moveTo(30, 36);
-          c.lineTo(98, 36);
-          c.lineTo(64, 96);
-        } else if (code === "left") {
-          c.moveTo(36, 64);
-          c.lineTo(96, 32);
-          c.lineTo(96, 96);
-        } else {
-          c.moveTo(92, 64);
-          c.lineTo(32, 32);
-          c.lineTo(32, 96);
-        }
-        c.closePath();
-        c.fill();
-        c.restore();
-      },
+  private makeArrowButton({
+    parent,
+    code,
+    x,
+    y,
+    z,
+    dx,
+    dz,
+    accent,
+    size,
+  }: {
+    parent: Entity;
+    code: "up" | "down" | "left" | "right";
+    x: number;
+    y: number;
+    z: number;
+    dx: number;
+    dz: number;
+    accent: string;
+    size: number;
+  }): Arrow {
+    const e = this.makeButton(parent, size, size, 128, 128, x, y, z, (c) =>
+      this.drawArrowButton(c, code, accent),
     );
     return { e, dx, dz, prev: false };
+  }
+
+  private drawArrowButton(
+    c: CanvasRenderingContext2D,
+    code: "up" | "down" | "left" | "right",
+    accent: string,
+  ) {
+    c.clearRect(0, 0, 128, 128);
+    drawHoloPanel(c, 8, 8, 112, 112, {
+      accent,
+      radius: 16,
+      glow: 0.8,
+      brackets: false,
+    });
+    c.save();
+    c.fillStyle = accent;
+    c.shadowColor = accent;
+    c.shadowBlur = 14;
+    c.beginPath();
+    if (code === "up") {
+      c.moveTo(64, 32);
+      c.lineTo(98, 92);
+      c.lineTo(30, 92);
+    } else if (code === "down") {
+      c.moveTo(30, 36);
+      c.lineTo(98, 36);
+      c.lineTo(64, 96);
+    } else if (code === "left") {
+      c.moveTo(36, 64);
+      c.lineTo(96, 32);
+      c.lineTo(96, 96);
+    } else {
+      c.moveTo(92, 64);
+      c.lineTo(32, 32);
+      c.lineTo(32, 96);
+    }
+    c.closePath();
+    c.fill();
+    c.restore();
   }
 
   /** Build a flat canvas-textured panel entity that reacts to ray + poke. */

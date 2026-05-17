@@ -13,6 +13,7 @@ import {
   SRGBColorSpace,
   Vector3,
 } from "@iwsdk/core";
+import { snakeLayoutState } from "./layoutState.js";
 
 /**
  * PlayerTunerSystem — a dev overlay for dialing in the player's height.
@@ -173,12 +174,12 @@ export class PlayerTunerSystem extends createSystem({}) {
     const key =
       `${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)},` +
       this.eyeWorld.y.toFixed(2) +
-      `,${window.__snakeBoardCoords?.x?.toFixed(2) ?? "na"},` +
-      `${window.__snakeBoardCoords?.y?.toFixed(2) ?? "na"},` +
-      `${window.__snakeBoardCoords?.z?.toFixed(2) ?? "na"},` +
-      `${window.__snakeHudCoords?.x?.toFixed(2) ?? "na"},` +
-      `${window.__snakeHudCoords?.y?.toFixed(2) ?? "na"},` +
-      `${window.__snakeHudCoords?.z?.toFixed(2) ?? "na"}`;
+      `,${snakeLayoutState.board?.x?.toFixed(2) ?? "na"},` +
+      `${snakeLayoutState.board?.y?.toFixed(2) ?? "na"},` +
+      `${snakeLayoutState.board?.z?.toFixed(2) ?? "na"},` +
+      `${snakeLayoutState.hud?.x?.toFixed(2) ?? "na"},` +
+      `${snakeLayoutState.hud?.y?.toFixed(2) ?? "na"},` +
+      `${snakeLayoutState.hud?.z?.toFixed(2) ?? "na"}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
 
@@ -206,8 +207,8 @@ export class PlayerTunerSystem extends createSystem({}) {
       138,
     );
 
-    const board = window.__snakeBoardCoords;
-    const hud = window.__snakeHudCoords;
+    const board = snakeLayoutState.board;
+    const hud = snakeLayoutState.hud;
     c.fillStyle = "#8ef0a8";
     c.font = "bold 22px sans-serif";
     c.fillText("BOARD", 22, 174);
