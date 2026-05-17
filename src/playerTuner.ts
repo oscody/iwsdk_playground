@@ -57,15 +57,15 @@ export class PlayerTunerSystem extends createSystem({}) {
     // Live coordinate readout (display only).
     const canvas = document.createElement("canvas");
     canvas.width = 480;
-    canvas.height = 208;
+    canvas.height = 236;
     this.ctx = canvas.getContext("2d")!;
     this.tex = new CanvasTexture(canvas);
     this.tex.colorSpace = SRGBColorSpace;
     const panel = new Mesh(
-      new PlaneGeometry(0.3, 0.13),
+      new PlaneGeometry(0.3, 0.148),
       this.hudMaterial(this.tex),
     );
-    panel.position.set(0, 0.097, 0);
+    panel.position.set(0, 0.107, 0);
     panel.renderOrder = 999;
     group.add(panel);
 
@@ -175,14 +175,17 @@ export class PlayerTunerSystem extends createSystem({}) {
       this.eyeWorld.y.toFixed(2) +
       `,${window.__snakeBoardCoords?.x?.toFixed(2) ?? "na"},` +
       `${window.__snakeBoardCoords?.y?.toFixed(2) ?? "na"},` +
-      `${window.__snakeBoardCoords?.z?.toFixed(2) ?? "na"}`;
+      `${window.__snakeBoardCoords?.z?.toFixed(2) ?? "na"},` +
+      `${window.__snakeHudCoords?.x?.toFixed(2) ?? "na"},` +
+      `${window.__snakeHudCoords?.y?.toFixed(2) ?? "na"},` +
+      `${window.__snakeHudCoords?.z?.toFixed(2) ?? "na"}`;
     if (key === this.lastKey) return;
     this.lastKey = key;
 
     const c = this.ctx;
-    c.clearRect(0, 0, 480, 208);
+    c.clearRect(0, 0, 480, 236);
     c.fillStyle = "rgba(10,14,22,0.9)";
-    c.fillRect(0, 0, 480, 208);
+    c.fillRect(0, 0, 480, 236);
     c.fillStyle = "#5fe0d0";
     c.fillRect(0, 0, 480, 6);
 
@@ -204,17 +207,31 @@ export class PlayerTunerSystem extends createSystem({}) {
     );
 
     const board = window.__snakeBoardCoords;
+    const hud = window.__snakeHudCoords;
     c.fillStyle = "#8ef0a8";
     c.font = "bold 22px sans-serif";
     c.fillText("BOARD", 22, 174);
     c.fillStyle = "#f5f7ff";
-    c.font = "22px sans-serif";
+    c.font = "20px sans-serif";
     c.fillText(
       board
         ? `X ${board.x.toFixed(2)}   Y ${board.y.toFixed(2)}   Z ${board.z.toFixed(2)}`
         : "Board coords unavailable",
       100,
       174,
+    );
+
+    c.fillStyle = "#78d8ff";
+    c.font = "bold 22px sans-serif";
+    c.fillText("HUD", 22, 210);
+    c.fillStyle = "#f5f7ff";
+    c.font = "20px sans-serif";
+    c.fillText(
+      hud
+        ? `X ${hud.x.toFixed(2)}   Y ${hud.y.toFixed(2)}   Z ${hud.z.toFixed(2)}`
+        : "HUD coords unavailable",
+      100,
+      210,
     );
 
     this.tex.needsUpdate = true;

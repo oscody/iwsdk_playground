@@ -69,6 +69,8 @@ const BOARD_MOVE_STEP = TILE; // metres moved by the board per button press
 declare global {
   interface Window {
     __snakeBoardCoords?: { x: number; y: number; z: number };
+    __snakeHudCoords?: { x: number; y: number; z: number };
+    __snakeHudControlsCoords?: { x: number; y: number; z: number };
   }
 }
 
@@ -107,7 +109,9 @@ export class SnakeGameSystem extends createSystem({}) {
 
   private arrows: Arrow[] = [];
   private boardMoveArrows: Arrow[] = [];
+  private hudBoardMoveArrows: Arrow[] = [];
   private hudEntity!: Entity;
+  private hudControlsEntity!: Entity;
   private restartEntity!: Entity;
   private restartPrev = false;
   private exitVrBtnEntity!: Entity;
@@ -153,6 +157,8 @@ export class SnakeGameSystem extends createSystem({}) {
       });
       this.hudTex.dispose();
       window.__snakeBoardCoords = undefined;
+      window.__snakeHudCoords = undefined;
+      window.__snakeHudControlsCoords = undefined;
       this.rootEntity.dispose();
     });
 
@@ -181,7 +187,7 @@ export class SnakeGameSystem extends createSystem({}) {
     }
 
     this.updateActionButton();
-    this.publishBoardCoords();
+    this.publishLayoutCoords();
     this.renderSnake();
     // Energy orb pulse + holographic HUD halo.
     this.orbMesh.scale.setScalar(1 + Math.sin(this.elapsed * 4) * 0.16);
@@ -376,6 +382,11 @@ export class SnakeGameSystem extends createSystem({}) {
       if (now && !a.prev) this.moveBoard(a.dx, a.dz);
       a.prev = now;
     }
+    for (const a of this.hudBoardMoveArrows) {
+      const now = a.e.hasComponent(Pressed);
+      if (now && !a.prev) this.moveHudControls(a.dx, a.dz);
+      a.prev = now;
+    }
     // New-game / restart + exit-VR buttons beside the HUD.
     const rNow = this.restartEntity.hasComponent(Pressed);
     if (rNow && !this.restartPrev) this.onActionButton();
@@ -402,12 +413,44 @@ export class SnakeGameSystem extends createSystem({}) {
     this.publishBoardCoords();
   }
 
+  private moveHudControls(dx: number, dz: number) {
+    const stepX = dx * BOARD_MOVE_STEP;
+    const stepZ = dz * BOARD_MOVE_STEP;
+    const hud = this.hudEntity.object3D;
+    const hudControls = this.hudControlsEntity.object3D;
+    hud.position.x += stepX;
+    hud.position.z += stepZ;
+    hudControls.position.x += stepX;
+    hudControls.position.z += stepZ;
+    this.publishLayoutCoords();
+  }
+
   private publishBoardCoords() {
     window.__snakeBoardCoords = {
       x: this.board.position.x,
       y: this.board.position.y,
       z: this.board.position.z,
     };
+  }
+
+  private publishLayoutCoords() {
+    this.publishBoardCoords();
+    const hud = this.hudEntity?.object3D;
+    const hudControls = this.hudControlsEntity?.object3D;
+    if (hud) {
+      window.__snakeHudCoords = {
+        x: hud.position.x,
+        y: hud.position.y,
+        z: hud.position.z,
+      };
+    }
+    if (hudControls) {
+      window.__snakeHudControlsCoords = {
+        x: hudControls.position.x,
+        y: hudControls.position.y,
+        z: hudControls.position.z,
+      };
+    }
   }
 
   // --- scene construction -------------------------------------------------
@@ -536,14 +579,21 @@ export class SnakeGameSystem extends createSystem({}) {
   }
 
   private buildHud() {
-    // The HUD panel and the restart / exit-VR buttons share one tilted group, so
-    // the buttons always sit right next to the GAME OVER readout.
+    // The score panel and its controls live in separate world-space groups.
     const hudGroup = new Group();
-    hudGroup.position.set(0, 0.34, -HALF - 0.03);
+    hudGroup.position.set(BOARD.x, BOARD.y + 0.34, BOARD.z - HALF - 0.03);
     hudGroup.rotation.x = -0.32; // tilt up toward the elevated viewer
     this.hudEntity = this.world.createTransformEntity(
       hudGroup,
-      this.boardEntity,
+      this.rootEntity,
+    );
+
+    const hudControlsGroup = new Group();
+    hudControlsGroup.position.set(BOARD.x, BOARD.y + 0.14, BOARD.z - HALF - 0.03);
+    hudControlsGroup.rotation.x = -0.32;
+    this.hudControlsEntity = this.world.createTransformEntity(
+      hudControlsGroup,
+      this.rootEntity,
     );
 
     const canvas = document.createElement("canvas");
@@ -569,25 +619,32 @@ export class SnakeGameSystem extends createSystem({}) {
     // New-game / restart button (its label tracks play state) plus
     // an exit-VR button, side by side just below the panel.
     this.restartEntity = this.buildActionButton(
-      this.hudEntity,
+      this.hudControlsEntity,
       -0.155,
-      -0.16,
+      0,
       0.001,
     );
     this.actionLabel = "NEW GAME";
     this.drawActionButton("NEW GAME");
     this.exitVrBtnEntity = this.makeButton(
-      this.hudEntity,
+      this.hudControlsEntity,
       0.29,
       0.08,
       360,
       100,
       0.155,
-      -0.16,
+      0,
       0.001,
       (c) => this.drawTextButton(c, "EXIT VR", "#46e0c0"),
     );
 
+    this.hudBoardMoveArrows = [
+      this.makeHudBoardMoveArrow("up", 0, 0.35, 0.001, 0, -1),
+      this.makeHudBoardMoveArrow("down", 0, -0.11, 0.001, 0, 1),
+      this.makeHudBoardMoveArrow("left", -0.35, 0, 0.001, -1, 0),
+      this.makeHudBoardMoveArrow("right", 0.35, 0, 0.001, 1, 0),
+    ];
+    this.publishLayoutCoords();
   }
 
   /** Shared draw routine for the EXIT VR and action (NEW GAME / RESTART) buttons. */
@@ -819,6 +876,61 @@ export class SnakeGameSystem extends createSystem({}) {
     dz: number,
   ): Arrow {
     return this.makeArrow(code, x, y, z, dx, dz);
+  }
+
+  private makeHudBoardMoveArrow(
+    code: "up" | "down" | "left" | "right",
+    x: number,
+    y: number,
+    z: number,
+    dx: number,
+    dz: number,
+  ): Arrow {
+    const e = this.makeButton(
+      this.hudControlsEntity,
+      0.062,
+      0.062,
+      128,
+      128,
+      x,
+      y,
+      z,
+      (c) => {
+        c.clearRect(0, 0, 128, 128);
+        drawHoloPanel(c, 8, 8, 112, 112, {
+          accent: HOLO.green,
+          radius: 16,
+          glow: 0.8,
+          brackets: false,
+        });
+        c.save();
+        c.fillStyle = HOLO.green;
+        c.shadowColor = HOLO.green;
+        c.shadowBlur = 14;
+        c.beginPath();
+        if (code === "up") {
+          c.moveTo(64, 32);
+          c.lineTo(98, 92);
+          c.lineTo(30, 92);
+        } else if (code === "down") {
+          c.moveTo(30, 36);
+          c.lineTo(98, 36);
+          c.lineTo(64, 96);
+        } else if (code === "left") {
+          c.moveTo(36, 64);
+          c.lineTo(96, 32);
+          c.lineTo(96, 96);
+        } else {
+          c.moveTo(92, 64);
+          c.lineTo(32, 32);
+          c.lineTo(32, 96);
+        }
+        c.closePath();
+        c.fill();
+        c.restore();
+      },
+    );
+    return { e, dx, dz, prev: false };
   }
 
   /** Build a flat canvas-textured panel entity that reacts to ray + poke. */
