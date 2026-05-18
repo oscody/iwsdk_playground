@@ -49,8 +49,8 @@ import { SnakeHud } from "./snakeHud.js";
  * system, so it never touches Strata or the menu.
  */
 
-const GRID = 13; // tiles per side
-const TILE = 0.06; // metres per tile
+const GRID = 17; // tiles per side
+const TILE = 0.08; // metres per tile
 const SPAN = GRID * TILE; // board side length
 const HALF = SPAN / 2;
 const SEG_Y = TILE * 0.5; // height of segment/orb centres above the board
