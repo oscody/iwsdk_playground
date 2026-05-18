@@ -588,17 +588,18 @@ export class SnakeGameSystem extends createSystem({}) {
   }
 
   private buildControls() {
-    // Directional steering cluster, near the player's edge of the board.
-    const cx = 0;
-    const cy = 0.17;
-    const cz = HALF + 0.13;
-    const s = 0.082; // arrow spacing
-    this.arrows = [
-      this.makeArrow("up", cx, cy + s, cz, 0, -1),
-      this.makeArrow("down", cx, cy - s, cz, 0, 1),
-      this.makeArrow("left", cx - s, cy, cz, -1, 0),
-      this.makeArrow("right", cx + s, cy, cz, 1, 0),
-    ];
+    // Snake movement arrows hidden for now. Keyboard, controller, and pinch
+    // steering still work through handleInput().
+    // const cx = 0;
+    // const cy = 0.17;
+    // const cz = HALF + 0.13;
+    // const s = 0.082; // arrow spacing
+    // this.arrows = [
+    //   this.makeArrow("up", cx, cy + s, cz, 0, -1),
+    //   this.makeArrow("down", cx, cy - s, cz, 0, 1),
+    //   this.makeArrow("left", cx - s, cy, cz, -1, 0),
+    //   this.makeArrow("right", cx + s, cy, cz, 1, 0),
+    // ];
 
     const moveY = 0.08;
     const edge = HALF + 0.14;
