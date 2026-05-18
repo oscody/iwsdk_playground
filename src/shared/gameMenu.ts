@@ -13,7 +13,7 @@ import {
   SRGBColorSpace,
 } from "@iwsdk/core";
 
-import { BlockGameSystem } from "./blockGame.js";
+import { BlockGameSystem } from "../strata/blockGame.js";
 import { gameHub, type GameId } from "./gameHub.js";
 import {
   drawHoloPanel,
@@ -23,7 +23,7 @@ import {
   makeScanlineTexture,
   rgba,
 } from "./holoUi.js";
-import { SnakeGameSystem } from "./snakeGame.js";
+import { SnakeGameSystem } from "../serpent-grid/snakeGame.js";
 
 /**
  * GameMenuSystem — the launcher.

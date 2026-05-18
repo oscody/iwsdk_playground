@@ -1,7 +1,7 @@
 import { SessionMode, World } from "@iwsdk/core";
 
-import { GameMenuSystem } from "./gameMenu.js";
-import { PlayerTunerSystem } from "./playerTuner.js";
+import { GameMenuSystem } from "./shared/gameMenu.js";
+import { PlayerTunerSystem } from "./shared/playerTuner.js";
 
 /**
  * Immersive Arcade — a launcher hosting multiple WebXR games built on the

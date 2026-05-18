@@ -29,8 +29,8 @@ import {
   VisibilityState,
 } from "@iwsdk/core";
 
-import { drawHoloPanel, HOLO } from "./holoUi.js";
-import { setSnakeLayoutCoords } from "./layoutState.js";
+import { drawHoloPanel, HOLO } from "../shared/holoUi.js";
+import { setSnakeLayoutCoords } from "../shared/layoutState.js";
 import { SnakeHud } from "./snakeHud.js";
 
 /**

@@ -17,7 +17,7 @@ import {
   drawHoloText,
   HOLO,
   makeGlowMaterial,
-} from "./holoUi.js";
+} from "../shared/holoUi.js";
 
 export interface HudArrow {
   e: Entity;
